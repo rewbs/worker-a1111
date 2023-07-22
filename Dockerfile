@@ -3,27 +3,27 @@
 # ---------------------------------------------------------------------------- #
 FROM alpine/git:2.36.2 as download
 
-COPY builder/clone.sh /clone.sh
+# COPY builder/clone.sh /clone.sh
 
 # Clone the repos and clean unnecessary files
-RUN . /clone.sh taming-transformers https://github.com/CompVis/taming-transformers.git 24268930bf1dce879235a7fddd0b2355b84d7ea6 && \
-    rm -rf data assets **/*.ipynb
+# RUN . /clone.sh taming-transformers https://github.com/CompVis/taming-transformers.git 24268930bf1dce879235a7fddd0b2355b84d7ea6 && \
+#     rm -rf data assets **/*.ipynb
 
-RUN . /clone.sh stable-diffusion-stability-ai https://github.com/Stability-AI/stablediffusion.git 47b6b607fdd31875c9279cd2f4f16b92e4ea958e && \
-    rm -rf assets data/**/*.png data/**/*.jpg data/**/*.gif
+# RUN . /clone.sh stable-diffusion-stability-ai https://github.com/Stability-AI/stablediffusion.git 47b6b607fdd31875c9279cd2f4f16b92e4ea958e stable-diffusion-stability-ai && \
+#     rm -rf assets data/**/*.png data/**/*.jpg data/**/*.gif
 
-RUN . /clone.sh CodeFormer https://github.com/sczhou/CodeFormer.git c5b4593074ba6214284d6acd5f1719b6c5d739af && \
-    rm -rf assets inputs
+# RUN . /clone.sh CodeFormer https://github.com/sczhou/CodeFormer.git c5b4593074ba6214284d6acd5f1719b6c5d739af && \
+#     rm -rf assets inputs
 
-RUN . /clone.sh BLIP https://github.com/salesforce/BLIP.git 48211a1594f1321b00f14c9f7a5b4813144b2fb9 && \
-    . /clone.sh k-diffusion https://github.com/crowsonkb/k-diffusion.git 5b3af030dd83e0297272d861c19477735d0317ec && \
-    . /clone.sh clip-interrogator https://github.com/pharmapsychotic/clip-interrogator 2486589f24165c8e3b303f84e9dbbea318df83e8
+# RUN . /clone.sh BLIP https://github.com/salesforce/BLIP.git 48211a1594f1321b00f14c9f7a5b4813144b2fb9 && \
+#     . /clone.sh k-diffusion https://github.com/crowsonkb/k-diffusion.git c9fe758 && \
+#     . /clone.sh clip-interrogator https://github.com/pharmapsychotic/clip-interrogator 2486589f24165c8e3b303f84e9dbbea318df83e8
 
 RUN wget -O /model.safetensors https://civitai.com/api/download/models/15236
 
 
 # ---------------------------------------------------------------------------- #
-#                        Stage 3: Build the final image                        #
+#                        Stage 2: Setup deps                                   #
 # ---------------------------------------------------------------------------- #
 FROM python:3.10.9-slim
 
@@ -46,14 +46,14 @@ RUN --mount=type=cache,target=/cache --mount=type=cache,target=/root/.cache/pip 
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git && \
     cd stable-diffusion-webui && \
-    git reset --hard 89f9faa63388756314e8a1d96cf86bf5e0663045 && \
+    git reset --hard f865d3e1 && \ 
     pip install -r requirements_versions.txt
 
-COPY --from=download /repositories/ ${ROOT}/repositories/
+#COPY --from=download /repositories/ ${ROOT}/repositories/
 COPY --from=download /model.safetensors /model.safetensors
-RUN mkdir ${ROOT}/interrogate && cp ${ROOT}/repositories/clip-interrogator/data/* ${ROOT}/interrogate
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r ${ROOT}/repositories/CodeFormer/requirements.txt
+#RUN mkdir ${ROOT}/interrogate && cp ${ROOT}/repositories/clip-interrogator/data/* ${ROOT}/interrogate
+#RUN --mount=type=cache,target=/root/.cache/pip \
+#    pip install -r ${ROOT}/repositories/CodeFormer/requirements.txt
 
 # Install Python dependencies (Worker Template)
 COPY builder/requirements.txt /requirements.txt
@@ -67,12 +67,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     cd stable-diffusion-webui && \
     git fetch && \
     git reset --hard ${SHA} && \
-    pip install -r requirements_versions.txt
+    pip install -r requirements.txt
 
 ADD src .
 
 COPY builder/cache.py /stable-diffusion-webui/cache.py
 RUN cd /stable-diffusion-webui && python cache.py --use-cpu=all --ckpt /model.safetensors
+
+# Install extensions
+RUN cd /stable-diffusion-webui/extensions && \
+    git clone https://github.com/Mikubill/sd-webui-controlnet.git && \
+    git reset --hard 098f6cd && \ 
+    pip install -r requirements_versions.txt
+
+RUN cd /stable-diffusion-webui/extensions && \
+    git clone https://github.com/rewbs/deforum-for-automatic1111-webui.git && \
+    #git reset --hard <TODO: lock to confirmed good hash> && \ 
+    pip install -r requirements.txt
+
+# Installing requirements by running launcher, but with --exit flag so that webui isn't started.
+RUN cd /stable-diffusion-webui && python ./launch.py --skip-torch-cuda-test  --exit
 
 # Cleanup section (Worker Template)
 RUN apt-get autoremove -y && \
