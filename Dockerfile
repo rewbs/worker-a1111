@@ -43,11 +43,16 @@ RUN apt-get update && \
 RUN --mount=type=cache,target=/cache --mount=type=cache,target=/root/.cache/pip \
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
+RUN --mount=type=cache,target=/cache --mount=type=cache,target=/root/.cache/pip \
+    apt-get update && apt-get install ffmpeg libsm6 libxext6 python3-opencv  -y && \
+    pip install opencv-python
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git && \
     cd stable-diffusion-webui && \
     git reset --hard f865d3e1 && \ 
     pip install -r requirements_versions.txt
+
 
 #COPY --from=download /repositories/ ${ROOT}/repositories/
 COPY --from=download /model.safetensors /model.safetensors
@@ -62,31 +67,37 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade -r /requirements.txt --no-cache-dir && \
     rm /requirements.txt
 
-ARG SHA=89f9faa63388756314e8a1d96cf86bf5e0663045
+#ARG SHA=89f9faa63388756314e8a1d96cf86bf5e0663045
 RUN --mount=type=cache,target=/root/.cache/pip \
     cd stable-diffusion-webui && \
     git fetch && \
-    git reset --hard ${SHA} && \
+    #git reset --hard <TODO: lock to confirmed good hash> && \ 
     pip install -r requirements.txt
 
 ADD src .
 
-COPY builder/cache.py /stable-diffusion-webui/cache.py
-RUN cd /stable-diffusion-webui && python cache.py --use-cpu=all --ckpt /model.safetensors
-
 # Install extensions
-RUN cd /stable-diffusion-webui/extensions && \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    cd stable-diffusion-webui/extensions && \
     git clone https://github.com/Mikubill/sd-webui-controlnet.git && \
-    git reset --hard 098f6cd && \ 
-    pip install -r requirements_versions.txt
-
-RUN cd /stable-diffusion-webui/extensions && \
-    git clone https://github.com/rewbs/deforum-for-automatic1111-webui.git && \
     #git reset --hard <TODO: lock to confirmed good hash> && \ 
-    pip install -r requirements.txt
+    pip install -r sd-webui-controlnet/requirements.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    cd stable-diffusion-webui/extensions && \
+    git clone https://github.com/rewbs/deforum-for-automatic1111-webui.git deforum && \
+    #git reset --hard <TODO: lock to confirmed good hash> && \ 
+    pip install -r deforum/requirements.txt
 
 # Installing requirements by running launcher, but with --exit flag so that webui isn't started.
-RUN cd /stable-diffusion-webui && python ./launch.py --skip-torch-cuda-test  --exit
+RUN --mount=type=cache,target=/root/.cache/pip \
+    cd stable-diffusion-webui && python ./launch.py --skip-torch-cuda-test  --exit
+
+# Force one of the models to be downloaded by running a subset of the UI?
+# TODO we might need this for other things like depth models etc...
+COPY builder/cache.py /stable-diffusion-webui/cache.py
+RUN --mount=type=cache,target=/root/.cache/pip \
+    cd stable-diffusion-webui && python cache.py --use-cpu=all --ckpt /model.safetensors
 
 # Cleanup section (Worker Template)
 RUN apt-get autoremove -y && \
